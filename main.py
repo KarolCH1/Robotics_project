@@ -1,5 +1,6 @@
 import os
 import time
+import cv2 as cv
 
 if os.name == 'nt':
     import msvcrt
@@ -76,45 +77,66 @@ elif dxl_error != 0:
 else:
     print("Dynamixel has been successfully connected")
     
+# Openining the camera
+# cap = cv.VideoCapture(1)
+
+# Check if the camera opened successfully
+# if not cap.isOpened():
+#     print("Error: Could not open camera.")
+#     exit()    
+    
+
+    
 # Initializing speed
 DXL_IDS = [1,2,3,4]
-for DXL_ID in DXL_IDS:
-    packetHandler.write2ByteTxRx(portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, 10)
+for joint in DXL_IDS:
+    packetHandler.write4ByteTxRx(portHandler, joint, ADDR_MX_MOVING_SPEED, 45)
 
-def movej(joint, position):
-    if (joint > 0 and joint <= 4) and (position >= 0 and position <= 1024):
+
+
+def movej(joints, positions):
+    # Create a list of length equal to the number of joints we want to move
+    joints_that_reached_positions = [False] * len(joints)
+    
+    # Write a position for each joint
+    for joint, position in zip(joints,positions):
         dxl_comm_result, dxl_error = packetHandler.write4ByteTxRx(portHandler, joint, ADDR_MX_GOAL_POSITION, position)
         if dxl_comm_result != COMM_SUCCESS:
             print("%s" % packetHandler.getTxRxResult(dxl_comm_result))
         elif dxl_error != 0:
             print("%s" % packetHandler.getRxPacketError(dxl_error))
             
-        # Going into a loop that breaks when the robot reaches a position
-        while 1:
+    # Going into a loop that breaks when the robot reaches a position
+    while 1:
+        for i, (joint, position) in enumerate(zip(joints, positions)):
             dxl_present_position, dxl_comm_result, dxl_error = packetHandler.read4ByteTxRx(portHandler, joint, ADDR_MX_PRESENT_POSITION)
             if dxl_comm_result != COMM_SUCCESS:
                 print("%s" % packetHandler.getTxRxResult(dxl_comm_result))
             elif dxl_error != 0:
                 print("%s" % packetHandler.getRxPacketError(dxl_error))
 
-            #print("[ID:%03d] GoalPos:%03d  PresPos:%03d" % (DXL_ID, dxl_goal_position[index], dxl_present_position))
 
             if not abs(position - dxl_present_position) > DXL_MOVING_STATUS_THRESHOLD:
-                break
-    else:
-        print("Incorrect joint or/and position values")
+                joints_that_reached_positions[i] = True
+        
+        if all(joints_that_reached_positions):
+            print("All joints have reached their target positions.")
+            break
+        else:
+            print(joints_that_reached_positions)
         
     
 
 while 1:
-    print("Press any key to continue! (or press ESC to quit!)")
-    if getch() == chr(0x1b):
-        break
-
+    # ret, frame = cap.read()
+    # cv.imshow('camera',frame)
     # Write goal position
-    movej(1, 500) 
-    movej(1, 400)
+    movej([1,2], [450,450])
+    movej([1,2], [400,400])
     break
+    # if cv.waitKey(1) & 0xFF == ord('q'):
+    #     break
+    
 
 
 # Disable Dynamixel Torque
