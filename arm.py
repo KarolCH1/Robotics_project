@@ -2,6 +2,8 @@ import os
 import time
 import cv2 as cv
 import logging
+import numpy as np
+import math
 
 if os.name == 'nt':
     import msvcrt
@@ -43,6 +45,11 @@ DXL_IDS = [1,2,3,4]
 
 class dxlRobot:
     def __init__(self) -> None:
+        # IMPORTANT VARIABLES AND CONSTANTS
+        self.HOME_POSITION = []
+        self.SEGMENT_LENGTHS = [50, 93, 93] #in mm
+        
+        
         self.portHandler = PortHandler(DEVICENAME)
         self.packetHandler = PacketHandler(PROTOCOL_VERSION)
         # Open port
@@ -118,10 +125,15 @@ class dxlRobot:
             else:
                 logging.info(joints_that_reached_positions)
                 
-    def movep(self) -> None:
+    def movep(self, x:int, y:int, z:int) -> None:
         """
         Moves robot to a inputed position using inverse kinematics
         """
+        theta1 = np.arctan(y,x)
+        
+        
+        
+        
         
 
     def close(self) -> None:
