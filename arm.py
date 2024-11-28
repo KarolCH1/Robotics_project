@@ -129,7 +129,20 @@ class dxlRobot:
         """
         Moves robot to a inputed position using inverse kinematics
         """
-        theta1 = np.arctan(y,x)
+        d1 = self.SEGMENT_LENGTHS[0]
+        a2 = self.SEGMENT_LENGTHS[1]
+        a3 = self.SEGMENT_LENGTHS[2]
+        
+        r = np.sqrt(x**2 + y**2)
+        s = z - d1
+        l = np.sqrt(r**2 + s**2)
+        
+        # cosinus of theta3
+        c3 = (r**2 + s**2 - a2**2 - a3**2)/(2*a2*a3)
+        s3 = sqrt(1 - c3**2)
+        
+        theta1 = np.arctan2(y,x)
+        theta2 = np.arctan2()
         
         
         
