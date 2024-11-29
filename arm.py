@@ -32,7 +32,7 @@ ADDR_MX_MOVING_SPEED = 32
 # Protocol version 
 PROTOCOL_VERSION            = 1.0
 BAUDRATE                    = 1000000             # Dynamixel default baudrate : 57600
-DEVICENAME                  = 'COM12'    # Check which port is being used on your controller
+DEVICENAME                  = 'COM14'    # Check which port is being used on your controller
                                                 # ex) Windows: "COM1"   Linux: "/dev/ttyUSB0" Mac: "/dev/tty.usbserial-*"
 
 TORQUE_ENABLE               = 1                 # Value for enabling the torque
@@ -42,12 +42,20 @@ DXL_MAXIMUM_POSITION_VALUE  = 500            # and this value (note that the Dyn
 DXL_MOVING_STATUS_THRESHOLD = 20                # Dynamixel moving status threshold
 DXL_IDS = [1,2,3,4]
 
+# For inverse kinematics
+d1 = 50
+a2 = 93
+a3 = 93
+a4 = 50
+
+
+logging.basicConfig(level=logging.INFO)
 
 class dxlRobot:
     def __init__(self) -> None:
+        
         # IMPORTANT VARIABLES AND CONSTANTS
         self.HOME_POSITION = []
-        self.SEGMENT_LENGTHS = [50, 93, 93] #in mm
         
         
         self.portHandler = PortHandler(DEVICENAME)
@@ -62,10 +70,10 @@ class dxlRobot:
         
         # Set port baudrate
         if self.portHandler.setBaudRate(BAUDRATE):
-            print("Succeeded to change the baudrate")
+            logging.info("Succeeded to change the baudrate")
         else:
-            print("Failed to change the baudrate")
-            print("Press any key to terminate...")
+            logging.error("Failed to change the baudrate")
+            logging.error("Press any key to terminate...")
             getch()
             quit()    
             
@@ -83,7 +91,7 @@ class dxlRobot:
                 
         # Initializing speed
         for DXL_ID in DXL_IDS:
-            self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, 40)
+            self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, 20)
 
 
     
@@ -109,7 +117,9 @@ class dxlRobot:
         # Going into a loop that breaks when the robot reaches a position
         while 1:
             for i, (joint, position) in enumerate(zip(joints, positions)):
+                #print(self.portHandler)
                 dxl_present_position, dxl_comm_result, dxl_error = self.packetHandler.read4ByteTxRx(self.portHandler, joint, ADDR_MX_PRESENT_POSITION)
+                #print(joint, dxl_present_position, dxl_comm_result, dxl_error)
                 if dxl_comm_result != COMM_SUCCESS:
                     logging.info("%s" % self.packetHandler.getTxRxResult(dxl_comm_result))
                 elif dxl_error != 0:
@@ -118,6 +128,9 @@ class dxlRobot:
 
                 if not abs(position - dxl_present_position) > DXL_MOVING_STATUS_THRESHOLD:
                     joints_that_reached_positions[i] = True
+                
+                # else:
+                #     print(position, dxl_present_position, joints_that_reached_positions, joint)
             
             if all(joints_that_reached_positions):
                 logging.info("All joints have reached their target positions.")
@@ -129,24 +142,71 @@ class dxlRobot:
         """
         Moves robot to a inputed position using inverse kinematics
         """
-        d1 = self.SEGMENT_LENGTHS[0]
-        a2 = self.SEGMENT_LENGTHS[1]
-        a3 = self.SEGMENT_LENGTHS[2]
+
         
         r = np.sqrt(x**2 + y**2)
         s = z - d1
-        l = np.sqrt(r**2 + s**2)
+        c = np.sqrt(r**2 + s**2)
         
-        # cosinus of theta3
-        c3 = (r**2 + s**2 - a2**2 - a3**2)/(2*a2*a3)
-        s3 = sqrt(1 - c3**2)
+        c3 = (r^2 + s^2 - a2^2 - a3^2) / (2*a2*a3);
+
+        s3 = sqrt(1-c3^2);
+
+        theta1 = np.atan2(y,x)
+        phi1 = np.acos((a2**2 + c**2 - a3**2)/(2*a2*c))
+        phi2 = np.atan2(s,r)
+        theta2 = - (np.pi/2 - phi1 - phi2)
+        theta3 = -np.acos(c3)
+
+
         
-        theta1 = np.arctan2(y,x)
-        theta2 = np.arctan2()
         
         
+    def calculateXYZ(self, theta1, theta2, theta3, theta4) -> list:
         
+        # Convert angles from degrees to radians if needed
+        theta1 = np.radians(theta1)
+        theta2 = np.radians(theta2)
+        theta3 = np.radians(theta3)
+        theta4 = np.radians(theta4)
         
+        # Compute trigonometric functions
+        cos1 = np.cos(theta1)
+        sin1 = np.sin(theta1)
+        cos2 = np.cos(theta2 + np.pi / 2)
+        sin2 = np.sin(theta2 + np.pi / 2)
+        cos3 = np.cos(theta3)
+        sin3 = np.sin(theta3)
+        cos4 = np.cos(theta4)
+        sin4 = np.sin(theta4)
+        
+        # Compute x, y, z
+        x = (
+            a2 * cos2 * cos1 +
+            a3 * cos3 * cos2 * cos1 +
+            a4 * cos4 * (cos3 * cos2 * cos1 - sin3 * sin2 * cos1) -
+            a3 * sin3 * sin2 * cos1 -
+            a4 * sin4 * (cos3 * sin2 * cos1 + sin3 * cos2 * cos1)
+        )
+        
+        y = (
+            a2 * cos2 * sin1 +
+            a3 * cos3 * cos2 * sin1 +
+            a4 * cos4 * (cos3 * cos2 * sin1 + sin3 * sin2 * sin1) +
+            a3 * sin3 * sin2 * sin1 +
+            a4 * sin4 * (cos3 * sin2 * sin1 - sin3 * cos2 * sin1)
+        )
+        
+        z = (
+            d1 +
+            a2 * sin2 +
+            a3 * cos2 * sin3 +
+            a3 * sin2 * cos3 +
+            a4 * cos4 * (cos2 * sin3 + sin2 * cos3) +
+            a4 * sin4 * (cos2 * cos3 - sin2 * sin3)
+        )
+        
+        return [x, y, z]
         
 
     def close(self) -> None:
@@ -160,6 +220,7 @@ class dxlRobot:
 
             # Close port
             self.portHandler.closePort()
+            sys.exit()
         
         
     
