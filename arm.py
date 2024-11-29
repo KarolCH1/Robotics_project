@@ -32,7 +32,6 @@ ADDR_MX_MOVING_SPEED = 32
 # Protocol version 
 PROTOCOL_VERSION            = 1.0
 BAUDRATE                    = 1000000             # Dynamixel default baudrate : 57600
-DEVICENAME                  = 'COM14'    # Check which port is being used on your controller
                                                 # ex) Windows: "COM1"   Linux: "/dev/ttyUSB0" Mac: "/dev/tty.usbserial-*"
 
 TORQUE_ENABLE               = 1                 # Value for enabling the torque
@@ -48,11 +47,15 @@ a2 = 93
 a3 = 93
 a4 = 50
 
+# Other parameters for the robot
+deg2pos_conversion_const = 3.4132
+zeroPos_robot = [515, 535, 510, 510]
+
 
 logging.basicConfig(level=logging.INFO)
 
 class dxlRobot:
-    def __init__(self) -> None:
+    def __init__(self, DEVICENAME) -> None:
         
         # IMPORTANT VARIABLES AND CONSTANTS
         self.HOME_POSITION = []
@@ -91,11 +94,11 @@ class dxlRobot:
                 
         # Initializing speed
         for DXL_ID in DXL_IDS:
-            self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, 20)
+            self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, 40)
 
 
     
-    def movej(self, joints: list, positions: list) -> None:
+    def movej(self, joints: list[int], positions: list[float]) -> None:
         """
         INPUTS
 
@@ -103,18 +106,23 @@ class dxlRobot:
         - positions (list[int]): A list of target positions corresponding to each joint.
         
         """
+        # Convert degrees to position of the motor
+        positions = np.array(positions)
+        positions = positions * deg2pos_conversion_const + np.array(zeroPos_robot[:len(joints)])
+        positions = np.round(positions).astype(int)
         # Create a list of length equal to the number of joints we want to move
         joints_that_reached_positions = [False] * len(joints)
         
         # Write a position for each joint
         for joint, position in zip(joints,positions):
-            dxl_comm_result, dxl_error = self.packetHandler.write4ByteTxRx(self.portHandler, joint, ADDR_MX_GOAL_POSITION, position)
+            dxl_comm_result, dxl_error = self.packetHandler.write2ByteTxRx(self.portHandler, joint, ADDR_MX_GOAL_POSITION, position)
             if dxl_comm_result != COMM_SUCCESS:
                 logging.info("%s" % self.packetHandler.getTxRxResult(dxl_comm_result))
             elif dxl_error != 0:
                 logging.info("%s" % self.packetHandler.getRxPacketError(dxl_error))
                 
         # Going into a loop that breaks when the robot reaches a position
+        
         while 1:
             for i, (joint, position) in enumerate(zip(joints, positions)):
                 #print(self.portHandler)
@@ -135,34 +143,70 @@ class dxlRobot:
             if all(joints_that_reached_positions):
                 logging.info("All joints have reached their target positions.")
                 break
-            else:
-                logging.info(joints_that_reached_positions)
-                
-    def movep(self, x:int, y:int, z:int) -> None:
+           
+    def movep(self, xend:float, yend:float, zend:float, beta:float) -> None:
         """
         Moves robot to a inputed position using inverse kinematics
         """
+        # Calculate distance between goal position and present position
+        
+        
+        oe = np.array([xend, yend, zend])
 
+        theta1 = np.atan2(yend,xend)
+        
+        if beta == 0:
+            oc = oe - a4*np.transpose(np.array([0,0,1]))
+        elif np.abs(beta) == np.pi/2:
+            oc = oe - a4*np.transpose(np.array([np.cos(theta1), np.sin(theta1), 0]))
+        elif np.abs(beta) == np.pi:
+            oc = oe - a4*np.transpose(np.array([0,0,-1]))
+        else:
+            logging.error("This program can only deal with vertical or horizontal stylus")
+        
+        x, y, z = oc
         
         r = np.sqrt(x**2 + y**2)
         s = z - d1
         c = np.sqrt(r**2 + s**2)
         
-        c3 = (r^2 + s^2 - a2^2 - a3^2) / (2*a2*a3);
+        c3 = (r**2 + s**2 - a2**2 - a3**2) / (2*a2*a3)
 
-        s3 = sqrt(1-c3^2);
+        s3 = np.sqrt(1-c3**2)
 
-        theta1 = np.atan2(y,x)
+        
         phi1 = np.acos((a2**2 + c**2 - a3**2)/(2*a2*c))
         phi2 = np.atan2(s,r)
         theta2 = - (np.pi/2 - phi1 - phi2)
         theta3 = -np.acos(c3)
+        theta4 = beta - theta2 - theta3
+        
+        
+        THETAS = np.rad2deg([theta1, theta2, theta3, theta4]).tolist()
+        self.movej([1,2,3,4], THETAS)
+        
+        print(THETAS)
+        print(self.calculateXYZ(THETAS))
 
-
+    def motorPose(self) -> list:
+        THETAS = []
+        for joint in range(1,5):
+            dxl_present_position, dxl_comm_result, dxl_error = self.packetHandler.read4ByteTxRx(self.portHandler, joint, ADDR_MX_PRESENT_POSITION)
+            #print(joint, dxl_present_position, dxl_comm_result, dxl_error)
+            if dxl_comm_result != COMM_SUCCESS:
+                logging.info("%s" % self.packetHandler.getTxRxResult(dxl_comm_result))
+            elif dxl_error != 0:
+                logging.info("%s" % self.packetHandler.getRxPacketError(dxl_error))
+            THETAS.append(dxl_present_position)
+            
+        THETAS = (THETAS - np.array(zeroPos_robot)) / deg2pos_conversion_const
+            
+        return THETAS
         
         
+    def calculateXYZ(self, angles:list[float]) -> list:
         
-    def calculateXYZ(self, theta1, theta2, theta3, theta4) -> list:
+        theta1, theta2, theta3, theta4 = angles
         
         # Convert angles from degrees to radians if needed
         theta1 = np.radians(theta1)
@@ -190,11 +234,12 @@ class dxlRobot:
         )
         
         y = (
-            a2 * cos2 * sin1 +
-            a3 * cos3 * cos2 * sin1 +
-            a4 * cos4 * (cos3 * cos2 * sin1 + sin3 * sin2 * sin1) +
-            a3 * sin3 * sin2 * sin1 +
-            a4 * sin4 * (cos3 * sin2 * sin1 - sin3 * cos2 * sin1)
+            -a2 * sin2 * sin1 +
+            a3 * (cos3 * (-sin2 * sin1) + sin3 * cos2 * cos1) +
+            a4 * (
+                cos4 * (cos3 * (-sin2 * sin1) + sin3 * cos2 * cos1) +
+                sin4 * (cos3 * cos2 * cos1 - sin3 * (-sin2 * sin1))
+            )
         )
         
         z = (

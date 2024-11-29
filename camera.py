@@ -2,6 +2,9 @@ import cv2 as cv
 import numpy as np
 import logging
 
+# Some parameters
+cap_diameter = 30.2 #mm
+
 
 class Camera:
     def __init__(self, camera_index):
@@ -41,7 +44,7 @@ class Camera:
         # cv.createTrackbar("Sat high", "Hough Circles", 255, 255, lambda x: None)
         # cv.createTrackbar("Val high", "Hough Circles", 255, 255, lambda x: None)
         
-        cv.createTrackbar("Thresh lower", "Hough Circles", 1, 255, lambda x: None)
+        cv.createTrackbar("Thresh max", "Hough Circles", 1, 255, lambda x: None)
         cv.createTrackbar("Adap block", "Hough Circles", 3, 40, lambda x: None)
         cv.createTrackbar("Const C", "Hough Circles", 2, 10, lambda x: None)
     
@@ -65,7 +68,7 @@ class Camera:
         # sat_high = cv.getTrackbarPos("Sat high", "Hough Circles")
         # val_high = cv.getTrackbarPos("Val high", "Hough Circles")
         
-        threshold_lower = cv.getTrackbarPos("Thresh lower", "Hough Circles")
+        threshold_max = cv.getTrackbarPos("Thresh max", "Hough Circles")
         
         adaptive_threshold_block = 2*cv.getTrackbarPos("Adap block", "Hough Circles") + 1
         const_c = cv.getTrackbarPos("Const C", "Hough Circles")
@@ -82,16 +85,13 @@ class Camera:
         # result = cv.bitwise_and(hsv, hsv, mask=mask)
         
         frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        frame_blur = cv.medianBlur(frame_gray, 9)
         
+        frame_thresh = cv.threshold(frame_blur,threshold_max,255,cv.THRESH_BINARY)[1]
+        #frame_thresh = cv.adaptiveThreshold(frame_gray, threshold_max, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, adaptive_threshold_block,const_c)
         
-        #frame_thresh = cv.threshold(frame_gray,threshold_lower,255,cv.THRESH_BINARY)[1]
-        frame_thresh = cv.adaptiveThreshold(frame_gray, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, adaptive_threshold_block,const_c)
-        frame_thresh = cv.medianBlur(frame_thresh, 9)
                 
         edges = cv.Canny(frame_thresh, 150, 200)
-        
-        
-        
         circles = cv.HoughCircles(edges, cv.HOUGH_GRADIENT, dp=1.2, minDist=minDist, param1=param1, param2=param2, minRadius=minRadius, maxRadius=maxRadius)
         
         x = None
