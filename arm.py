@@ -28,6 +28,8 @@ ADDR_MX_TORQUE_ENABLE      = 24               # Control table address is differe
 ADDR_MX_GOAL_POSITION      = 30
 ADDR_MX_PRESENT_POSITION   = 36
 ADDR_MX_MOVING_SPEED = 32
+ADDR_CW_COMPLIANCE_SLOPE = 28
+ADDR_CCW_COMPLIANCE_SLOPE = 29
 
 # Protocol version 
 PROTOCOL_VERSION            = 1.0
@@ -51,7 +53,7 @@ zeroPos_robot = [515, 535, 510, 510]
 logging.basicConfig(level=logging.INFO)
 
 class dxlRobot:
-    def __init__(self, DEVICENAME) -> None:
+    def __init__(self, DEVICENAME, defSpeed) -> None:
         
         # IMPORTANT VARIABLES AND CONSTANTS
         self.HOME_POSITION = []
@@ -90,12 +92,17 @@ class dxlRobot:
                 
         # Initializing speed
         for DXL_ID in DXL_IDS:
-            self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, 40)
+            self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, defSpeed)
 
     def setSpeed(self, speed):
         # Initializing speed
         for DXL_ID in DXL_IDS:
             self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, speed)
+    
+    def setSlope(self, slope):
+        for DXL_ID in DXL_IDS:
+            self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_CW_COMPLIANCE_SLOPE, slope)
+            self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_CCW_COMPLIANCE_SLOPE, slope)
     
     def movej(self, joints: list[int], positions: list[float]) -> None:
         """
@@ -107,71 +114,57 @@ class dxlRobot:
         """
         # Convert degrees to position of the motor
         positions = np.array(positions)
-        print("Positions for movej",positions)
         positions = positions * deg2pos_conversion_const + np.array(zeroPos_robot[:len(joints)])
         positions = np.round(positions).astype(int)
-        print("Positions for movej",positions)
-        # Create a list of length equal to the number of joints we want to move
-        joints_that_reached_positions = [False] * len(joints)
-        
+               
         # Write a position for each joint
         for joint, position in zip(joints,positions):
-            dxl_comm_result, dxl_error = self.packetHandler.write2ByteTxRx(self.portHandler, joint, ADDR_MX_GOAL_POSITION, position)
-            if dxl_comm_result != COMM_SUCCESS:
-                logging.info("%s" % self.packetHandler.getTxRxResult(dxl_comm_result))
-            elif dxl_error != 0:
-                logging.info("%s" % self.packetHandler.getRxPacketError(dxl_error))
-                
-        # Going into a loop that breaks when the robot reaches a position
+            self.packetHandler.write2ByteTxRx(self.portHandler, joint, ADDR_MX_GOAL_POSITION, position)
+
+        time.sleep(0.001)
+         
         
-        while 1:
-            for i, (joint, position) in enumerate(zip(joints, positions)):
-                #print(self.portHandler)
-                dxl_present_position, dxl_comm_result, dxl_error = self.packetHandler.read4ByteTxRx(self.portHandler, joint, ADDR_MX_PRESENT_POSITION)
-                #print(joint, dxl_present_position, dxl_comm_result, dxl_error)
-                if dxl_comm_result != COMM_SUCCESS:
-                    logging.info("%s" % self.packetHandler.getTxRxResult(dxl_comm_result))
-                elif dxl_error != 0:
-                    logging.info("%s" % self.packetHandler.getRxPacketError(dxl_error))
-
-
-                if not abs(position - dxl_present_position) > DXL_MOVING_STATUS_THRESHOLD:
-                    joints_that_reached_positions[i] = True
-                
-                # else:
-                #     print(position, dxl_present_position, joints_that_reached_positions, joint)
-            
-            if all(joints_that_reached_positions):
-                logging.info("All joints have reached their target positions.")
-                break
-           
-    def movep(self, xend:float, yend:float, zend:float, beta:float) -> None:
+    
+    def movep(self, x:float, y:float, z:float) -> None:
+        print("Motor pose: ", self.motorPose()[:3])
+        xyz_now = self.calculateXYZ(self.motorPose()[:3])
+        xyz_goal = np.array([x, y, z])
+        print("Robot xyz now: ",xyz_now)
+        print("Robot xyz goal: ", xyz_goal)
+        distance = np.sqrt((xyz_now[0] - xyz_goal[0])**2 + (xyz_now[1] - xyz_goal[1])**2 + (xyz_now[2] - xyz_goal[2])**2)
+        
+        print("Distance: ", distance)
+        
+        vector = xyz_goal - xyz_now
+        print("Vector: ",vector)
+        
+        slices = round(distance)*2
+        print("Slices:", slices)
+        
+        vector_slice = vector/slices
+        
+        for i in range(slices):    
+            next_robot_pose = self.calculateANG(xyz_now[0] + vector_slice[0]*i, xyz_now[1] + vector_slice[1]*i, xyz_now[2] + vector_slice[2]*i)
+            #print(next_robot_pose)
+            self.movej([1,2,3,4], next_robot_pose)
+        
+        
+         
+    def calculateANG(self, x:float, y:float, z:float) -> list:
         """
         Moves robot to a inputed position using inverse kinematics
         """
-        # Calculate distance between goal position and present position
+        
+        
         # For inverse kinematics
         d1 = 50
         a2 = 93
         a3 = 93
         a4 = 50
         
-        oe = np.array([xend, yend, zend])
+        oe = np.array([x, y, z])
 
-        theta1 = np.atan2(yend,xend)
-        
-        if beta == 0:
-            oc = oe - a4*np.transpose(np.array([0,0,1]))
-        elif np.abs(beta) == np.pi/2:
-            oc = oe - a4*np.transpose(np.array([np.cos(theta1), np.sin(theta1), 0]))
-        elif np.abs(beta) == np.pi:
-            oc = oe - a4*np.transpose(np.array([0,0,-1]))
-        else:
-            logging.error("This program can only deal with vertical or horizontal stylus")
-        
-        x, y, z = oc
-        
-        
+        theta1 = np.arctan2(y,x)
         
         r = np.sqrt(x**2 + y**2)
         s = z - d1
@@ -179,21 +172,17 @@ class dxlRobot:
         
         c3 = (r**2 + s**2 - a2**2 - a3**2) / (2*a2*a3)
 
-        s3 = np.sqrt(1-c3**2)
-
+        phi1 = np.arccos((a2**2 + c**2 - a3**2)/(2*a2*c))
+        phi2 = np.arctan2(s,r)
+        theta2 = -(np.pi/2 - phi1 - phi2)
+        theta3 = -np.arccos(c3)
+        theta4 = -theta2 - theta3 - np.pi/2
         
-        phi1 = np.acos((a2**2 + c**2 - a3**2)/(2*a2*c))
-        phi2 = np.atan2(s,r)
-        theta2 = - (np.pi/2 - phi1 - phi2)
-        theta3 = -np.acos(c3)
-        theta4 = beta - theta2 - theta3
+        THETASrad = ([theta1, theta2, theta3, theta4])
+        THETASdeg = np.rad2deg([theta1, theta2, theta3, theta4]).tolist()
         
+        return THETASdeg
         
-        THETAS = np.rad2deg([theta1, theta2, theta3, theta4]).tolist()
-        print(THETAS)
-        #self.movej([1,2,3,4], THETAS)
-        
-        print(self.calculateXYZ(THETAS))
 
     def motorPose(self) -> list:
         THETAS = []
@@ -207,86 +196,65 @@ class dxlRobot:
             THETAS.append(dxl_present_position)
             
         THETAS = (THETAS - np.array(zeroPos_robot)) / deg2pos_conversion_const
+        
+        THETAS = np.deg2rad(THETAS)
             
         return THETAS
     
-    def denavitMatrix(self, theta, d, a, alpha) -> np.array:
-        sin_t = np.sin(theta)
-        cos_t = np.cos(theta)
-        sin_a = np.sin(alpha)
-        cos_a = np.cos(alpha)
-        A = np.array([[cos_t, -sin_t*cos_a, sin_t*sin_a, a*cos_t],
-             [sin_t, cos_t*cos_a, -cos_t*sin_a, a*sin_t],
-             [0, sin_a, cos_a, d],
-             [0, 0, 0, 1]])
+    def forwardTransfer(self, theta, d, a, alpha) -> np.matrix:
+        """rotation translation translation rotation"""
         
-        return A
+        #creating short hand notation for np.cos(x) and np.sin(x)
+        #th is theta al is alpha
+        c_th = np.cos(theta)
+        s_th = np.sin(theta)
+        c_al = np.cos(alpha)
+        s_al = np.sin(alpha)
+        
+        rot_z = np.matrix([[c_th, -s_th,  0,   0],
+                        [s_th,  c_th,  0,   0],
+                        [0,     0,     1,   0],
+                        [0,     0,     0,   1]])
+        
+        trans_ad = np.matrix([[1, 0, 0, a],
+                            [0, 1, 0, 0],
+                            [0, 0, 1, d],
+                            [0, 0, 0, 1]])
+        
+        rot_x = np.matrix([[1, 0,     0,    0],
+                        [0, c_al, -s_al, 0],
+                        [0, s_al,  c_al, 0],
+                        [0, 0,     0,    1]])
+        
+        
+        return(rot_z * trans_ad * rot_x)
     
     def calculateXYZ(self, angles:list[float]) -> list:
         
-        theta1, theta2, theta3, theta4 = angles
+        theta1, theta2, theta3 = angles
         
-        # For inverse kinematics
-        d1 = 50
-        a2 = 93
-        a3 = 93
-        a4 = 50
+        theta4 = 0
         
-        Tmatrix1 = self.denavitMatrix(theta1, d1, 0, np.pi/2)
-        Tmatrix2 = self.denavitMatrix(theta2 + np.pi/2, 0, a2, 0)
-        Tmatrix3 = self.denavitMatrix(theta3, 0, a3, 0)
-        Tmatrix4 = self.denavitMatrix(theta4, 0, a4, 0)
         
-        print("T1 = ", Tmatrix1,"T2 = ", Tmatrix2, "T3 = ", Tmatrix3, "T4 = ", Tmatrix4)
-        A54 = [[1, 0, 0, -15], [0, 1, 0, 45], [0, 0, 1, 0], [0, 0, 0, 1]]
+        DH = np.array([[theta1,          50,  0,    (np.pi/2)],
+               [theta2+np.pi/2,  0,  93,    0        ],
+               [theta3,          0,  93,    0        ],
+               [theta4,          0,  50,    0        ]]).astype(float)
+
+
+        Tmatrix1 = self.forwardTransfer(DH[0][0],DH[0][1],DH[0][2],DH[0][3])
+        Tmatrix2 = self.forwardTransfer(DH[1][0],DH[1][1],DH[1][2],DH[1][3])
+        Tmatrix3 = self.forwardTransfer(DH[2][0],DH[2][1],DH[2][2],DH[2][3])
+        Tmatrix4 = self.forwardTransfer(DH[3][0],DH[3][1],DH[3][2],DH[3][3])   
         
-        T05 = Tmatrix1*Tmatrix2*Tmatrix3*Tmatrix4*A54
-        print(T05)
         
-        # Convert angles from degrees to radians if needed
-        theta1 = np.radians(theta1)
-        theta2 = np.radians(theta2)
-        theta3 = np.radians(theta3)
-        theta4 = np.radians(theta4)
         
-        # Compute trigonometric functions
-        cos1 = np.cos(theta1)
-        sin1 = np.sin(theta1)
-        cos2 = np.cos(theta2 + np.pi / 2)
-        sin2 = np.sin(theta2 + np.pi / 2)
-        cos3 = np.cos(theta3)
-        sin3 = np.sin(theta3)
-        cos4 = np.cos(theta4)
-        sin4 = np.sin(theta4)
         
-        # Compute x, y, z
-        x = (
-            a2 * cos2 * cos1 +
-            a3 * cos3 * cos2 * cos1 +
-            a4 * cos4 * (cos3 * cos2 * cos1 - sin3 * sin2 * cos1) -
-            a3 * sin3 * sin2 * cos1 -
-            a4 * sin4 * (cos3 * sin2 * cos1 + sin3 * cos2 * cos1)
-        )
+        T04 = Tmatrix1*Tmatrix2*Tmatrix3
+        T04 = T04[:3,-1].flatten()
+        T04 = np.round([T04[0,0], T04[0,1], T04[0,2]], 4)
         
-        y = (
-            -a2 * sin2 * sin1 +
-            a3 * (cos3 * (-sin2 * sin1) + sin3 * cos2 * cos1) +
-            a4 * (
-                cos4 * (cos3 * (-sin2 * sin1) + sin3 * cos2 * cos1) +
-                sin4 * (cos3 * cos2 * cos1 - sin3 * (-sin2 * sin1))
-            )
-        )
-        
-        z = (
-            d1 +
-            a2 * sin2 +
-            a3 * cos2 * sin3 +
-            a3 * sin2 * cos3 +
-            a4 * cos4 * (cos2 * sin3 + sin2 * cos3) +
-            a4 * sin4 * (cos2 * cos3 - sin2 * sin3)
-        )
-        
-        return [x, y, z]
+        return T04
         
 
     def close(self) -> None:
