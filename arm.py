@@ -41,11 +41,7 @@ DXL_MAXIMUM_POSITION_VALUE  = 500            # and this value (note that the Dyn
 DXL_MOVING_STATUS_THRESHOLD = 20                # Dynamixel moving status threshold
 DXL_IDS = [1,2,3,4]
 
-# For inverse kinematics
-d1 = 50
-a2 = 93
-a3 = 93
-a4 = 50
+
 
 # Other parameters for the robot
 deg2pos_conversion_const = 3.4132
@@ -96,7 +92,10 @@ class dxlRobot:
         for DXL_ID in DXL_IDS:
             self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, 40)
 
-
+    def setSpeed(self, speed):
+        # Initializing speed
+        for DXL_ID in DXL_IDS:
+            self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, speed)
     
     def movej(self, joints: list[int], positions: list[float]) -> None:
         """
@@ -108,8 +107,10 @@ class dxlRobot:
         """
         # Convert degrees to position of the motor
         positions = np.array(positions)
+        print("Positions for movej",positions)
         positions = positions * deg2pos_conversion_const + np.array(zeroPos_robot[:len(joints)])
         positions = np.round(positions).astype(int)
+        print("Positions for movej",positions)
         # Create a list of length equal to the number of joints we want to move
         joints_that_reached_positions = [False] * len(joints)
         
@@ -149,7 +150,11 @@ class dxlRobot:
         Moves robot to a inputed position using inverse kinematics
         """
         # Calculate distance between goal position and present position
-        
+        # For inverse kinematics
+        d1 = 50
+        a2 = 93
+        a3 = 93
+        a4 = 50
         
         oe = np.array([xend, yend, zend])
 
@@ -165,6 +170,8 @@ class dxlRobot:
             logging.error("This program can only deal with vertical or horizontal stylus")
         
         x, y, z = oc
+        
+        
         
         r = np.sqrt(x**2 + y**2)
         s = z - d1
@@ -183,9 +190,9 @@ class dxlRobot:
         
         
         THETAS = np.rad2deg([theta1, theta2, theta3, theta4]).tolist()
-        self.movej([1,2,3,4], THETAS)
-        
         print(THETAS)
+        #self.movej([1,2,3,4], THETAS)
+        
         print(self.calculateXYZ(THETAS))
 
     def motorPose(self) -> list:
@@ -202,11 +209,39 @@ class dxlRobot:
         THETAS = (THETAS - np.array(zeroPos_robot)) / deg2pos_conversion_const
             
         return THETAS
+    
+    def denavitMatrix(self, theta, d, a, alpha) -> np.array:
+        sin_t = np.sin(theta)
+        cos_t = np.cos(theta)
+        sin_a = np.sin(alpha)
+        cos_a = np.cos(alpha)
+        A = np.array([[cos_t, -sin_t*cos_a, sin_t*sin_a, a*cos_t],
+             [sin_t, cos_t*cos_a, -cos_t*sin_a, a*sin_t],
+             [0, sin_a, cos_a, d],
+             [0, 0, 0, 1]])
         
-        
+        return A
+    
     def calculateXYZ(self, angles:list[float]) -> list:
         
         theta1, theta2, theta3, theta4 = angles
+        
+        # For inverse kinematics
+        d1 = 50
+        a2 = 93
+        a3 = 93
+        a4 = 50
+        
+        Tmatrix1 = self.denavitMatrix(theta1, d1, 0, np.pi/2)
+        Tmatrix2 = self.denavitMatrix(theta2 + np.pi/2, 0, a2, 0)
+        Tmatrix3 = self.denavitMatrix(theta3, 0, a3, 0)
+        Tmatrix4 = self.denavitMatrix(theta4, 0, a4, 0)
+        
+        print("T1 = ", Tmatrix1,"T2 = ", Tmatrix2, "T3 = ", Tmatrix3, "T4 = ", Tmatrix4)
+        A54 = [[1, 0, 0, -15], [0, 1, 0, 45], [0, 0, 1, 0], [0, 0, 0, 1]]
+        
+        T05 = Tmatrix1*Tmatrix2*Tmatrix3*Tmatrix4*A54
+        print(T05)
         
         # Convert angles from degrees to radians if needed
         theta1 = np.radians(theta1)
