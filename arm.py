@@ -47,7 +47,7 @@ DXL_IDS = [1,2,3,4]
 
 # Other parameters for the robot
 deg2pos_conversion_const = 3.4132
-zeroPos_robot = [515, 535, 510, 510]
+zeroPos_robot = [515, 535, 510, 810]
 
 
 logging.basicConfig(level=logging.INFO)
@@ -113,6 +113,7 @@ class dxlRobot:
         
         """
         # Convert degrees to position of the motor
+        positions = np.rad2deg(positions)
         positions = np.array(positions)
         positions = positions * deg2pos_conversion_const + np.array(zeroPos_robot[:len(joints)])
         positions = np.round(positions).astype(int)
@@ -125,9 +126,9 @@ class dxlRobot:
          
         
     
-    def movep(self, x:float, y:float, z:float) -> None:
-        print("Motor pose: ", self.motorPose()[:3])
-        xyz_now = self.calculateXYZ(self.motorPose()[:3])
+    def movep(self, x:float, y:float, z:float, beta:float) -> None:
+        print("Motor pose: ", self.motorPose())
+        xyz_now = self.calculateXYZ(self.motorPose())
         xyz_goal = np.array([x, y, z])
         print("Robot xyz now: ",xyz_now)
         print("Robot xyz goal: ", xyz_goal)
@@ -142,15 +143,16 @@ class dxlRobot:
         print("Slices:", slices)
         
         vector_slice = vector/slices
+        print("Xyz now: ", xyz_now[0], xyz_now[1], xyz_now[2])
         
         for i in range(slices):    
-            next_robot_pose = self.calculateANG(xyz_now[0] + vector_slice[0]*i, xyz_now[1] + vector_slice[1]*i, xyz_now[2] + vector_slice[2]*i)
-            #print(next_robot_pose)
+            next_robot_pose = self.calculateANG(xyz_now[0] + vector_slice[0]*i, xyz_now[1] + vector_slice[1]*i, xyz_now[2] + vector_slice[2]*i, beta)
+            print(next_robot_pose)
             self.movej([1,2,3,4], next_robot_pose)
         
         
          
-    def calculateANG(self, x:float, y:float, z:float) -> list:
+    def calculateANG(self, x:float, y:float, z:float, beta:float) -> list:
         """
         Moves robot to a inputed position using inverse kinematics
         """
@@ -163,6 +165,16 @@ class dxlRobot:
         a4 = 50
         
         oe = np.array([x, y, z])
+        
+        if beta == 0:
+            oc = oe - a4*np.transpose(np.array([0,0,1]))
+        elif np.abs(beta) == np.pi/2:
+            oc = oe - a4*np.transpose(np.array([np.cos(theta1), np.sin(theta1), 0]))
+        elif np.abs(beta) == np.pi:
+            oc = oe - a4*np.transpose(np.array([0,0,-1]))
+        
+        x,y,z = oc
+        
 
         theta1 = np.arctan2(y,x)
         
@@ -176,27 +188,27 @@ class dxlRobot:
         phi2 = np.arctan2(s,r)
         theta2 = -(np.pi/2 - phi1 - phi2)
         theta3 = -np.arccos(c3)
-        theta4 = -theta2 - theta3 - np.pi/2
+        theta4 = -theta2 - theta3 - beta
         
         THETASrad = ([theta1, theta2, theta3, theta4])
-        THETASdeg = np.rad2deg([theta1, theta2, theta3, theta4]).tolist()
+        #THETASdeg = np.rad2deg([theta1, theta2, theta3, theta4]).tolist()
         
-        return THETASdeg
+        return THETASrad
         
 
     def motorPose(self) -> list:
         THETAS = []
         for joint in range(1,5):
-            dxl_present_position, dxl_comm_result, dxl_error = self.packetHandler.read4ByteTxRx(self.portHandler, joint, ADDR_MX_PRESENT_POSITION)
+            dxl_present_position, dxl_comm_result, dxl_error = self.packetHandler.read2ByteTxRx(self.portHandler, joint, ADDR_MX_PRESENT_POSITION)
             #print(joint, dxl_present_position, dxl_comm_result, dxl_error)
             if dxl_comm_result != COMM_SUCCESS:
                 logging.info("%s" % self.packetHandler.getTxRxResult(dxl_comm_result))
             elif dxl_error != 0:
                 logging.info("%s" % self.packetHandler.getRxPacketError(dxl_error))
             THETAS.append(dxl_present_position)
-            
+       
         THETAS = (THETAS - np.array(zeroPos_robot)) / deg2pos_conversion_const
-        
+ 
         THETAS = np.deg2rad(THETAS)
             
         return THETAS
@@ -231,12 +243,12 @@ class dxlRobot:
     
     def calculateXYZ(self, angles:list[float]) -> list:
         
-        theta1, theta2, theta3 = angles
+        theta1, theta2, theta3, theta4 = angles
         
-        theta4 = 0
+        print("Angles: ", angles)
         
         
-        DH = np.array([[theta1,          50,  0,    (np.pi/2)],
+        DH = np.array([[theta1, 50,  0,    (np.pi/2)],
                [theta2+np.pi/2,  0,  93,    0        ],
                [theta3,          0,  93,    0        ],
                [theta4,          0,  50,    0        ]]).astype(float)
@@ -247,10 +259,15 @@ class dxlRobot:
         Tmatrix3 = self.forwardTransfer(DH[2][0],DH[2][1],DH[2][2],DH[2][3])
         Tmatrix4 = self.forwardTransfer(DH[3][0],DH[3][1],DH[3][2],DH[3][3])   
         
+        # print("Thera4: ", DH[3][0])
         
+        # print("\n Tmatrix1: \n", Tmatrix1)
+        # print("\n Tmatrix2: \n", Tmatrix2)
+        # print("\n Tmatrix3: \n", Tmatrix3)
+        # print("\n Tmatrix4: \n", Tmatrix4)
         
-        
-        T04 = Tmatrix1*Tmatrix2*Tmatrix3
+        T04 = Tmatrix1*Tmatrix2*Tmatrix3*Tmatrix4
+        # print("\n Tfinal: \n", T04)
         T04 = T04[:3,-1].flatten()
         T04 = np.round([T04[0,0], T04[0,1], T04[0,2]], 4)
         

@@ -26,7 +26,7 @@ class Camera:
         minDist = 20
         param1 = 69
         param2 = 39
-        minRadius = 80
+        minRadius = 50
         maxRadius = 100
         
         hue = 20
@@ -41,7 +41,7 @@ class Camera:
         cv.createTrackbar("Min Radius", "Hough Circles", minRadius, 300, lambda x: None)
         cv.createTrackbar("Max Radius", "Hough Circles", maxRadius, 300, lambda x: None)
         
-        cv.createTrackbar("Thresh max", "Hough Circles", 30, 255, lambda x: None)
+        cv.createTrackbar("Thresh max", "Hough Circles", 50, 255, lambda x: None)
         cv.createTrackbar("Adap block", "Hough Circles", 3, 40, lambda x: None)
         cv.createTrackbar("Const C", "Hough Circles", 2, 10, lambda x: None)
     
@@ -72,6 +72,8 @@ class Camera:
         y = None
         r = None
         distance = None
+        xmm = None
+        ymm = None
         
         if circles is not None:
             # Convert the (x, y) coordinates and radius of the circles to integers
