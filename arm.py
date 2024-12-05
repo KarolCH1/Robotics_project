@@ -47,7 +47,7 @@ DXL_IDS = [1,2,3,4]
 
 # Other parameters for the robot
 deg2pos_conversion_const = 3.4132
-zeroPos_robot = [515, 535, 510, 810]
+zeroPos_robot = [576, 510, 510, 821]
 
 
 logging.basicConfig(level=logging.INFO)
@@ -95,7 +95,7 @@ class dxlRobot:
             self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, defSpeed)
 
     def setSpeed(self, speed):
-        # Initializing speed
+        # Setting the speed
         for DXL_ID in DXL_IDS:
             self.packetHandler.write2ByteTxRx(self.portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, speed)
     
@@ -127,6 +127,8 @@ class dxlRobot:
         
     
     def movep(self, x:float, y:float, z:float, beta:float) -> None:
+        """Moves the end effector of a robot to a specified position"""
+        
         print("Motor pose: ", self.motorPose())
         xyz_now = self.calculateXYZ(self.motorPose())
         xyz_goal = np.array([x, y, z])
@@ -153,10 +155,7 @@ class dxlRobot:
         
          
     def calculateANG(self, x:float, y:float, z:float, beta:float) -> list:
-        """
-        Moves robot to a inputed position using inverse kinematics
-        """
-        
+       
         
         # For inverse kinematics
         d1 = 50
@@ -197,6 +196,7 @@ class dxlRobot:
         
 
     def motorPose(self) -> list:
+        """Calculates the rotation angle in radians of each motor"""
         THETAS = []
         for joint in range(1,5):
             dxl_present_position, dxl_comm_result, dxl_error = self.packetHandler.read2ByteTxRx(self.portHandler, joint, ADDR_MX_PRESENT_POSITION)
@@ -265,13 +265,55 @@ class dxlRobot:
         # print("\n Tmatrix2: \n", Tmatrix2)
         # print("\n Tmatrix3: \n", Tmatrix3)
         # print("\n Tmatrix4: \n", Tmatrix4)
+        A54 = np.matrix([[1, 0, 0, -15],
+                         [0, 1, 0, 45],
+                         [0, 0, 1, 0],
+                         [0, 0, 0, 1]])
         
         T04 = Tmatrix1*Tmatrix2*Tmatrix3*Tmatrix4
+        T05 = T04*A54
         # print("\n Tfinal: \n", T04)
         T04 = T04[:3,-1].flatten()
         T04 = np.round([T04[0,0], T04[0,1], T04[0,2]], 4)
         
         return T04
+    
+    def calculateT05(self, angles:list[float]) -> list:
+        
+        theta1, theta2, theta3, theta4 = angles
+        
+        print("Angles: ", angles)
+        
+        
+        DH = np.array([[theta1, 50,  0,    (np.pi/2)],
+               [theta2+np.pi/2,  0,  93,    0        ],
+               [theta3,          0,  93,    0        ],
+               [theta4,          0,  50,    0        ]]).astype(float)
+
+
+        Tmatrix1 = self.forwardTransfer(DH[0][0],DH[0][1],DH[0][2],DH[0][3])
+        Tmatrix2 = self.forwardTransfer(DH[1][0],DH[1][1],DH[1][2],DH[1][3])
+        Tmatrix3 = self.forwardTransfer(DH[2][0],DH[2][1],DH[2][2],DH[2][3])
+        Tmatrix4 = self.forwardTransfer(DH[3][0],DH[3][1],DH[3][2],DH[3][3])   
+        
+        # print("Thera4: ", DH[3][0])
+        
+        # print("\n Tmatrix1: \n", Tmatrix1)
+        # print("\n Tmatrix2: \n", Tmatrix2)
+        # print("\n Tmatrix3: \n", Tmatrix3)
+        # print("\n Tmatrix4: \n", Tmatrix4)
+        A54 = np.matrix([[1, 0, 0, -45],
+                         [0, 1, 0, 25],
+                         [0, 0, 1, 0],
+                         [0, 0, 0, 1]])
+        
+        T04 = Tmatrix1*Tmatrix2*Tmatrix3*Tmatrix4
+        T05 = T04*A54
+        # print("\n Tfinal: \n", T04)
+        T04 = T04[:3,-1].flatten()
+        T04 = np.round([T04[0,0], T04[0,1], T04[0,2]], 4)
+        
+        return T05
         
 
     def close(self) -> None:

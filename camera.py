@@ -92,7 +92,7 @@ class Camera:
             
             xmm = (cap_diameter/(2*r))*(x - self.width/2)
             ymm = -(cap_diameter/(2*r))*(y - self.height/2)
-            print("X: ", x, "Y: ", y, "Xmm: ", xmm, "Ymm: ", ymm)
+            print("X: ", x, "Y: ", y, "Xmm: ", xmm, "Ymm: ", ymm, "d: ", distance)
             # Calculate vector [x,y] in mm from the center of the camera
             
             
@@ -104,7 +104,7 @@ class Camera:
         
         
         
-        return [xmm,ymm]
+        return [xmm,ymm, distance]
         
         
         
